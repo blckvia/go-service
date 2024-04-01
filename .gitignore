@@ -1,0 +1,3 @@
+.idea/
+deployments/docker-compose.yaml
+deployments/Dockerfile
