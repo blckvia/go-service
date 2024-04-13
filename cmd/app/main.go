@@ -7,6 +7,7 @@ import (
 	"syscall"
 
 	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
@@ -36,14 +37,14 @@ func main() {
 	db, err := repository.NewPostgresDB(repository.Config{
 		Host:     viper.GetString("db.host"),
 		Port:     viper.GetString("db.port"),
-		Username: os.Getenv("DB_USER"),
+		Username: os.Getenv("DB_USERNAME"),
 		Password: os.Getenv("DB_PASSWORD"),
 		DBName:   viper.GetString("db.dbname"),
 		SSLMode:  viper.GetString("db.sslmode"),
 	})
 
 	if err != nil {
-		logger.Fatal("failed to initialize db: %w", zap.Error(err))
+		logger.Fatal("failed to initialize db", zap.Error(err))
 	}
 
 	repos := repository.New(db)
