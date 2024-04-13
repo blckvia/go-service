@@ -19,22 +19,22 @@ func (h *Handler) InitRoutes() *gin.Engine {
 
 	api := router.Group("/api")
 	{
-		projects := api.Group("/projects")
-		{
-			projects.POST("/", h.createProject)
-			projects.GET("/", h.getAllProjects)
-			projects.GET("/:id", h.getProject)
-			projects.PATCH("/:id", h.updateProject)
-			projects.DELETE("/:id", h.deleteProject)
-		}
+		//projects := api.Group("/projects")
+		//{
+		//	projects.POST("/", h.createProject)
+		//	projects.GET("/", h.getAllProjects)
+		//	projects.GET("/:id", h.getProject)
+		//	projects.PATCH("/:id", h.updateProject)
+		//	projects.DELETE("/:id", h.deleteProject)
+		//}
 
-		goods := router.Group("/goods")
+		goods := api.Group("/goods")
 		{
-			goods.POST("/", h.createGoods)
-			goods.GET("/", h.getAllGoods)
-			goods.GET("/:id", h.getGoodsById)
-			goods.PATCH("/:id", h.updateGoods)
+			goods.GET("/list", h.getAllGoods)
+			goods.POST("/:project_id", h.createGoods)
+			goods.PATCH("/:project_id/:id", h.updateGoods)
 			goods.DELETE("/:id", h.deleteGoods)
+			goods.GET("/:project_id/:id", h.getOne)
 		}
 	}
 
