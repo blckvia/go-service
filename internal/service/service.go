@@ -15,10 +15,10 @@ type Projects interface {
 
 type Goods interface {
 	Create(projectID int, goods models.Goods) (int, error)
-	Update(goodsID int, input models.Goods) error
-	Delete(goodsID int) error
-	GetAll() ([]models.Goods, error)
-	GetByID(goodsID int) (models.Goods, error)
+	Update(goodsID, projectID int, input models.UpdateGoods) error
+	Delete(goodsID, projectID int) error
+	GetAll(limit, offset int) (models.GetAllGoodsResponse, error)
+	GetOne(goodsID, projectID int) (models.Goods, error)
 }
 
 type Service struct {
