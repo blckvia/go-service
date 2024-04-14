@@ -13,7 +13,7 @@ func NewGoodsService(repo repository.Goods) *GoodsService {
 	return &GoodsService{repo: repo}
 }
 
-func (s *GoodsService) GetAll(limit, offset int) (models.GetAllGoodsResponse, error) {
+func (s *GoodsService) GetAll(limit, offset int) (models.GetAllGoods, error) {
 	return s.repo.GetAll(limit, offset)
 }
 func (s *GoodsService) GetOne(goodsID, projectID int) (models.Goods, error) {
@@ -27,4 +27,8 @@ func (s *GoodsService) Update(goodsID, projectID int, input models.UpdateGoods) 
 }
 func (s *GoodsService) Delete(goodsID, projectID int) error {
 	return s.repo.Delete(goodsID, projectID)
+}
+
+func (s *GoodsService) Reprioritize(goodsID, projectID int, priority int) error {
+	return s.repo.Reprioritize(goodsID, projectID, priority)
 }

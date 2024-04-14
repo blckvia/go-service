@@ -1,42 +1,62 @@
 package repository
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 
 	"go-service/internal/models"
+	r "go-service/pkg/redis"
 )
 
 var ErrNotFound = errors.New("record not found")
 
 type GoodsPostgres struct {
-	db *sqlx.DB
+	db    *sqlx.DB
+	cache r.Cache
 }
 
-func NewGoodsPostgres(db *sqlx.DB) *GoodsPostgres {
-	return &GoodsPostgres{db: db}
+func NewGoodsPostgres(db *sqlx.DB, cache r.Cache) *GoodsPostgres {
+	return &GoodsPostgres{
+		db:    db,
+		cache: cache,
+	}
 }
 
-func (r *GoodsPostgres) GetAll(limit, offset int) (models.GetAllGoodsResponse, error) {
+func (r *GoodsPostgres) GetAll(limit, offset int) (models.GetAllGoods, error) {
+	ctx := context.Background()
+	key := fmt.Sprintf(`goods:all:%d:%d`, limit, offset)
+	data, err := r.cache.Get(ctx, key)
+	if err != nil {
+		var response models.GetAllGoods
+		err = json.Unmarshal([]byte(data), &response)
+		if err != nil {
+			return models.GetAllGoods{}, err
+		}
+		return response, nil
+	}
+
 	var goods []models.Goods
 	query := fmt.Sprintf(`SELECT gp.id, gp.project_id, gp.name, gp.description, gp.priority, gp.removed, gp.created_at FROM %s gp LIMIT $1 OFFSET $2`, goodsTable)
 	if err := r.db.Select(&goods, query, limit, offset); err != nil {
-		return models.GetAllGoodsResponse{}, err
+		return models.GetAllGoods{}, err
 	}
 
 	var total int
-	err := r.db.Get(&total, fmt.Sprintf(`SELECT COUNT(*) FROM %s gp`, goodsTable))
+	err = r.db.Get(&total, fmt.Sprintf(`SELECT COUNT(*) FROM %s gp`, goodsTable))
 	if err != nil {
-		return models.GetAllGoodsResponse{}, err
+		return models.GetAllGoods{}, err
 	}
 
 	var removed int
 	err = r.db.Get(&removed, fmt.Sprintf(`SELECT COUNT(id) FROM %s gp WHERE gp.removed = true`, goodsTable))
 	if err != nil {
-		return models.GetAllGoodsResponse{}, err
+		return models.GetAllGoods{}, err
 	}
 
 	meta := models.Meta{
@@ -46,10 +66,21 @@ func (r *GoodsPostgres) GetAll(limit, offset int) (models.GetAllGoodsResponse, e
 		Offset:  offset,
 	}
 
-	response := models.GetAllGoodsResponse{
+	response := models.GetAllGoods{
 		Meta:  meta,
 		Goods: goods,
 	}
+
+	jsonData, err := json.Marshal(response)
+	if err != nil {
+		return models.GetAllGoods{}, err
+	}
+
+	err = r.cache.Set(ctx, key, string(jsonData), 1*time.Minute)
+	if err != nil {
+		return models.GetAllGoods{}, err
+	}
+
 	return response, nil
 }
 
@@ -129,7 +160,58 @@ func (r *GoodsPostgres) Update(goodsID, projectID int, input models.UpdateGoods)
 }
 
 func (r *GoodsPostgres) Delete(goodsID, projectID int) error {
-	query := fmt.Sprintf(`UPDATE %s SET remove = true WHERE id = $1 AND project_id = $2`, goodsTable)
-	_, err := r.db.Exec(query, goodsID, projectID)
-	return err
+	query := fmt.Sprintf(`UPDATE %s SET removed = true WHERE id = $1 AND project_id = $2`, goodsTable)
+	res, err := r.db.Exec(query, goodsID, projectID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+func (r *GoodsPostgres) Reprioritize(goodsID, projectID int, priority int) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var exists bool
+	err = tx.QueryRow(fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE id = $1 AND project_id = $2)", goodsTable), goodsID, projectID).Scan(&exists)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	if !exists {
+		tx.Rollback()
+		return ErrNotFound
+	}
+
+	query := fmt.Sprintf(`UPDATE %s SET priority = $1 WHERE id = $2 AND project_id = $3`, goodsTable)
+	_, err = tx.Exec(query, priority, goodsID, projectID)
+	if err != nil {
+		return err
+	}
+
+	query = fmt.Sprintf(`UPDATE %s SET priority = priority + 1 WHERE project_id = $1 AND priority >= $2`, goodsTable)
+	_, err = tx.Exec(query, projectID, priority)
+	if err != nil {
+		return err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

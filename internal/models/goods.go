@@ -20,7 +20,7 @@ type UpdateGoods struct {
 	Description *string `json:"description" db:"description"`
 }
 
-type GetAllGoodsResponse struct {
+type GetAllGoods struct {
 	Meta  Meta    `json:"meta"`
 	Goods []Goods `json:"goods"`
 }

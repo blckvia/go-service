@@ -2,7 +2,6 @@ package handler
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 
@@ -105,7 +104,6 @@ func (h *Handler) updateGoods(c *gin.Context) {
 	}
 
 	if err := h.services.Goods.Update(goodsID, projectID, input); err != nil {
-		fmt.Println(errors.Is(err, repository.ErrNotFound))
 		if errors.Is(err, repository.ErrNotFound) {
 			newDetailedErrorResponse(c, http.StatusNotFound, 3, "errors.good.NotFound", "record not found")
 			return
@@ -142,5 +140,58 @@ func (h *Handler) deleteGoods(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, statusResponse{"ok"})
+	if err := h.services.Goods.Delete(goodsID, projectID); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			newDetailedErrorResponse(c, http.StatusNotFound, 3, "errors.good.NotFound", "record not found")
+			return
+		}
+		newErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	updatedGoods, err := h.services.Goods.GetOne(goodsID, projectID)
+	if err != nil {
+		newErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, updatedGoods)
+}
+
+func (h *Handler) reprioritize(c *gin.Context) {
+	goodsID, err := GetGoodsId(c)
+	if err != nil {
+		newErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	projectID, err := GetProjectId(c)
+	if err != nil {
+		newErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	priority, err := strconv.Atoi(c.Query("priority"))
+	if err != nil {
+		newErrorResponse(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	err = h.services.Goods.Reprioritize(goodsID, projectID, priority)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			newDetailedErrorResponse(c, http.StatusNotFound, 3, "errors.good.NotFound", "record not found")
+			return
+		}
+		newErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	updatedGoods, err := h.services.Goods.GetOne(goodsID, projectID)
+	if err != nil {
+		newErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, updatedGoods)
 }
