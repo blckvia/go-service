@@ -8,11 +8,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const (
-	goodsCtx   = "id"
-	projectCtx = "project_id"
-)
-
 func GetGoodsId(c *gin.Context) (int, error) {
 	goodsIDStr := c.Param("id")
 	if goodsIDStr == "" {
