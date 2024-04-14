@@ -11,6 +11,8 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
+	"go-service/pkg/redis"
+
 	"go-service/internal/app"
 	"go-service/internal/handler"
 	"go-service/internal/repository"
@@ -47,7 +49,9 @@ func main() {
 		logger.Fatal("failed to initialize db", zap.Error(err))
 	}
 
-	repos := repository.New(db)
+	rdb := redis.NewClient()
+	redisCache := redis.NewRedisCache(rdb)
+	repos := repository.New(db, redisCache)
 	services := service.New(repos)
 	handlers := handler.NewHandler(services)
 

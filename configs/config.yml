@@ -5,3 +5,9 @@ db:
   port: '5436'
   dbname: 'postgres'
   sslmode: 'disable'
+
+rdb:
+  host: 'localhost'
+  port: '6379'
+  dbname: '0'
+  password: ''
