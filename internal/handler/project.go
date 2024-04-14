@@ -1,11 +1,14 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
 	"go-service/internal/models"
+	"go-service/internal/repository"
 )
 
 func (h *Handler) createProject(c *gin.Context) {
@@ -15,15 +18,24 @@ func (h *Handler) createProject(c *gin.Context) {
 		return
 	}
 
+	if input.Name == "" {
+		newErrorResponse(c, http.StatusBadRequest, "name is required")
+		return
+	}
+
 	id, err := h.services.Projects.Create(input)
 	if err != nil {
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, map[string]interface{}{
-		"id": id,
-	})
+	project, err := h.services.Projects.GetByID(id)
+	if err != nil {
+		newErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, project)
 }
 
 type getAllProjectsResponse struct {
@@ -31,15 +43,15 @@ type getAllProjectsResponse struct {
 }
 
 func (h *Handler) getAllProjects(c *gin.Context) {
-	project, err := h.services.Projects.GetAll()
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	projects, err := h.services.Projects.GetAll(limit, offset)
 	if err != nil {
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, getAllProjectsResponse{
-		Data: project,
-	})
+	c.JSON(http.StatusOK, projects)
 }
 
 func (h *Handler) getProject(c *gin.Context) {
@@ -65,18 +77,28 @@ func (h *Handler) updateProject(c *gin.Context) {
 		return
 	}
 
-	var input models.Project
+	var input models.UpdateProjects
 	if err := c.BindJSON(&input); err != nil {
 		newErrorResponse(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if err := h.services.Projects.Update(projectID, input); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			newDetailedErrorResponse(c, http.StatusNotFound, 3, "errors.project.NotFound", "record not found")
+			return
+		}
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, statusResponse{"ok"})
+	updatedProjects, err := h.services.Projects.GetByID(projectID)
+	if err != nil {
+		newErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, updatedProjects)
 }
 
 func (h *Handler) deleteProject(c *gin.Context) {
