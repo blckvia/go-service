@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -32,7 +33,7 @@ func (r *GoodsPostgres) GetAll(limit, offset int) (models.GetAllGoods, error) {
 	ctx := context.Background()
 	key := fmt.Sprintf(`goods:all:%d:%d`, limit, offset)
 	data, err := r.cache.Get(ctx, key)
-	if err != nil {
+	if err == nil {
 		var response models.GetAllGoods
 		err = json.Unmarshal([]byte(data), &response)
 		if err != nil {
@@ -156,6 +157,13 @@ func (r *GoodsPostgres) Update(goodsID, projectID int, input models.UpdateGoods)
 		return err
 	}
 
+	ctx := context.Background()
+	key := fmt.Sprintf("goods:%d:%d", goodsID, projectID)
+	err = r.cache.Delete(ctx, key)
+	if err != nil {
+		log.Printf("Failed to invalidate cache for key %s: %v", key, err)
+	}
+
 	return nil
 }
 
@@ -173,6 +181,13 @@ func (r *GoodsPostgres) Delete(goodsID, projectID int) error {
 
 	if rowsAffected == 0 {
 		return ErrNotFound
+	}
+
+	ctx := context.Background()
+	key := fmt.Sprintf("goods:%d:%d", goodsID, projectID)
+	err = r.cache.Delete(ctx, key)
+	if err != nil {
+		log.Printf("Failed to invalidate cache for key %s: %v", key, err)
 	}
 
 	return nil
@@ -211,6 +226,13 @@ func (r *GoodsPostgres) Reprioritize(goodsID, projectID int, priority int) error
 	err = tx.Commit()
 	if err != nil {
 		return err
+	}
+
+	ctx := context.Background()
+	key := fmt.Sprintf("goods:%d:%d", goodsID, projectID)
+	err = r.cache.Delete(ctx, key)
+	if err != nil {
+		log.Printf("Failed to invalidate cache for key %s: %v", key, err)
 	}
 
 	return nil
