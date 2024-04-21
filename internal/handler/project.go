@@ -23,13 +23,13 @@ func (h *Handler) createProject(c *gin.Context) {
 		return
 	}
 
-	id, err := h.services.Projects.Create(input)
+	id, err := h.services.Projects.Create(c, input)
 	if err != nil {
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	project, err := h.services.Projects.GetByID(id)
+	project, err := h.services.Projects.GetByID(c, id)
 	if err != nil {
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
@@ -45,7 +45,7 @@ type getAllProjectsResponse struct {
 func (h *Handler) getAllProjects(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
-	projects, err := h.services.Projects.GetAll(limit, offset)
+	projects, err := h.services.Projects.GetAll(c, limit, offset)
 	if err != nil {
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
@@ -61,7 +61,7 @@ func (h *Handler) getProject(c *gin.Context) {
 		return
 	}
 
-	project, err := h.services.Projects.GetByID(projectID)
+	project, err := h.services.Projects.GetByID(c, projectID)
 	if err != nil {
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
@@ -83,7 +83,7 @@ func (h *Handler) updateProject(c *gin.Context) {
 		return
 	}
 
-	if err := h.services.Projects.Update(projectID, input); err != nil {
+	if err := h.services.Projects.Update(c, projectID, input); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			newDetailedErrorResponse(c, http.StatusNotFound, 3, "errors.project.NotFound", "record not found")
 			return
@@ -92,7 +92,7 @@ func (h *Handler) updateProject(c *gin.Context) {
 		return
 	}
 
-	updatedProjects, err := h.services.Projects.GetByID(projectID)
+	updatedProjects, err := h.services.Projects.GetByID(c, projectID)
 	if err != nil {
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
@@ -108,7 +108,7 @@ func (h *Handler) deleteProject(c *gin.Context) {
 		return
 	}
 
-	err = h.services.Projects.Delete(projectID)
+	err = h.services.Projects.Delete(c, projectID)
 	if err != nil {
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return

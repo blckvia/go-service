@@ -1,27 +1,29 @@
 package repository
 
 import (
-	"github.com/jmoiron/sqlx"
+	"context"
+
+	"github.com/jackc/pgx/v5"
 
 	"go-service/internal/models"
 	r "go-service/pkg/redis"
 )
 
 type Projects interface {
-	Create(input models.Project) (int, error)
-	Update(projectID int, input models.UpdateProjects) error
-	Delete(projectID int) error
-	GetAll(limit, offset int) (models.GetAllProjects, error)
-	GetByID(projectID int) (models.Project, error)
+	Create(ctx context.Context, input models.Project) (int, error)
+	Update(ctx context.Context, projectID int, input models.UpdateProjects) error
+	Delete(ctx context.Context, projectID int) error
+	GetAll(ctx context.Context, limit, offset int) (models.GetAllProjects, error)
+	GetByID(ctx context.Context, projectID int) (models.Project, error)
 }
 
 type Goods interface {
-	Create(projectID int, goods models.Goods) (int, error)
-	Update(goodsID, projectID int, input models.UpdateGoods) error
-	Delete(goodsID, projectID int) error
-	GetAll(limit, offset int) (models.GetAllGoods, error)
-	GetOne(goodsID, projectID int) (models.Goods, error)
-	Reprioritize(goodsID, projectID int, priority int) error
+	Create(ctx context.Context, projectID int, goods models.Goods) (int, error)
+	Update(ctx context.Context, goodsID, projectID int, input models.UpdateGoods) error
+	Delete(ctx context.Context, goodsID, projectID int) error
+	GetAll(ctx context.Context, limit, offset int) (models.GetAllGoods, error)
+	GetOne(ctx context.Context, goodsID, projectID int) (models.Goods, error)
+	Reprioritize(ctx context.Context, goodsID, projectID int, priority int) error
 }
 
 type Repository struct {
@@ -29,9 +31,9 @@ type Repository struct {
 	Goods
 }
 
-func New(db *sqlx.DB, cache r.Cache) *Repository {
+func New(ctx context.Context, db *pgx.Conn, cache r.Cache) *Repository {
 	return &Repository{
-		Goods:    NewGoodsPostgres(db, cache),
-		Projects: NewProjectPostgres(db),
+		Goods: NewGoodsPostgres(ctx, db, cache),
+		//Projects: NewProjectPostgres(ctx, db),
 	}
 }

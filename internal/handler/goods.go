@@ -32,7 +32,7 @@ func (h *Handler) createGoods(c *gin.Context) {
 		input.Description = input.Name
 	}
 
-	id, err := h.services.Goods.Create(projectID, input)
+	id, err := h.services.Goods.Create(c, projectID, input)
 	if err != nil {
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
@@ -54,7 +54,7 @@ func (h *Handler) createGoods(c *gin.Context) {
 func (h *Handler) getAllGoods(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
-	goods, err := h.services.Goods.GetAll(limit, offset)
+	goods, err := h.services.Goods.GetAll(c, limit, offset)
 	if err != nil {
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
@@ -76,7 +76,7 @@ func (h *Handler) getOne(c *gin.Context) {
 		return
 	}
 
-	goods, err := h.services.Goods.GetOne(goodsID, projectID)
+	goods, err := h.services.Goods.GetOne(c, goodsID, projectID)
 	if err != nil {
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
@@ -103,7 +103,7 @@ func (h *Handler) updateGoods(c *gin.Context) {
 		return
 	}
 
-	if err := h.services.Goods.Update(goodsID, projectID, input); err != nil {
+	if err := h.services.Goods.Update(c, goodsID, projectID, input); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			newDetailedErrorResponse(c, http.StatusNotFound, 3, "errors.good.NotFound", "record not found")
 			return
@@ -112,7 +112,7 @@ func (h *Handler) updateGoods(c *gin.Context) {
 		return
 	}
 
-	updatedGoods, err := h.services.Goods.GetOne(goodsID, projectID)
+	updatedGoods, err := h.services.Goods.GetOne(c, goodsID, projectID)
 	if err != nil {
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
@@ -134,13 +134,13 @@ func (h *Handler) deleteGoods(c *gin.Context) {
 		return
 	}
 
-	err = h.services.Goods.Delete(goodsID, projectID)
+	err = h.services.Goods.Delete(c, goodsID, projectID)
 	if err != nil {
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	if err := h.services.Goods.Delete(goodsID, projectID); err != nil {
+	if err := h.services.Goods.Delete(c, goodsID, projectID); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			newDetailedErrorResponse(c, http.StatusNotFound, 3, "errors.good.NotFound", "record not found")
 			return
@@ -149,7 +149,7 @@ func (h *Handler) deleteGoods(c *gin.Context) {
 		return
 	}
 
-	updatedGoods, err := h.services.Goods.GetOne(goodsID, projectID)
+	updatedGoods, err := h.services.Goods.GetOne(c, goodsID, projectID)
 	if err != nil {
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
@@ -177,7 +177,7 @@ func (h *Handler) reprioritize(c *gin.Context) {
 		return
 	}
 
-	err = h.services.Goods.Reprioritize(goodsID, projectID, priority)
+	err = h.services.Goods.Reprioritize(c, goodsID, projectID, priority)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			newDetailedErrorResponse(c, http.StatusNotFound, 3, "errors.good.NotFound", "record not found")
@@ -187,7 +187,7 @@ func (h *Handler) reprioritize(c *gin.Context) {
 		return
 	}
 
-	updatedGoods, err := h.services.Goods.GetOne(goodsID, projectID)
+	updatedGoods, err := h.services.Goods.GetOne(c, goodsID, projectID)
 	if err != nil {
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return

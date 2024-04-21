@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jmoiron/sqlx"
+	"github.com/jackc/pgx/v5"
 
 	"go-service/internal/models"
 	r "go-service/pkg/redis"
@@ -18,44 +18,52 @@ import (
 var ErrNotFound = errors.New("record not found")
 
 type GoodsPostgres struct {
-	db    *sqlx.DB
+	ctx   context.Context
+	db    *pgx.Conn
 	cache r.Cache
+	//nats  *nats.Conn
 }
 
-func NewGoodsPostgres(db *sqlx.DB, cache r.Cache) *GoodsPostgres {
+func NewGoodsPostgres(ctx context.Context, db *pgx.Conn, cache r.Cache /*nats *nats.Conn*/) *GoodsPostgres {
 	return &GoodsPostgres{
+		ctx:   ctx,
 		db:    db,
 		cache: cache,
+		//nats:  nats,
 	}
 }
 
-func (r *GoodsPostgres) GetAll(limit, offset int) (models.GetAllGoods, error) {
-	ctx := context.Background()
-	key := fmt.Sprintf(`goods:all:%d:%d`, limit, offset)
-	data, err := r.cache.Get(ctx, key)
-	if err == nil {
-		var response models.GetAllGoods
-		err = json.Unmarshal([]byte(data), &response)
-		if err != nil {
-			return models.GetAllGoods{}, err
-		}
-		return response, nil
-	}
-
+// TODO: rewrite with r.db.Preparex()
+// TODO: QueryBuilder (squirell package)
+func (r *GoodsPostgres) GetAll(ctx context.Context, limit, offset int) (models.GetAllGoods, error) {
 	var goods []models.Goods
 	query := fmt.Sprintf(`SELECT gp.id, gp.project_id, gp.name, gp.description, gp.priority, gp.removed, gp.created_at FROM %s gp LIMIT $1 OFFSET $2`, goodsTable)
-	if err := r.db.Select(&goods, query, limit, offset); err != nil {
+	rows, err := r.db.Query(ctx, query, limit, offset)
+	if err != nil {
+		return models.GetAllGoods{}, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var good models.Goods
+		if err := rows.Scan(&good.ID, &good.ProjectID, &good.Name, &good.Description, &good.Priority, &good.Removed, &good.CreatedAt); err != nil {
+			return models.GetAllGoods{}, err
+		}
+		goods = append(goods, good)
+	}
+
+	if err := rows.Err(); err != nil {
 		return models.GetAllGoods{}, err
 	}
 
 	var total int
-	err = r.db.Get(&total, fmt.Sprintf(`SELECT COUNT(*) FROM %s gp`, goodsTable))
+	err = r.db.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(gp.id) FROM %s gp`, goodsTable)).Scan(&total)
 	if err != nil {
 		return models.GetAllGoods{}, err
 	}
 
 	var removed int
-	err = r.db.Get(&removed, fmt.Sprintf(`SELECT COUNT(id) FROM %s gp WHERE gp.removed = true`, goodsTable))
+	err = r.db.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(gp.id) FROM %s gp WHERE gp.removed = true`, goodsTable)).Scan(&removed)
 	if err != nil {
 		return models.GetAllGoods{}, err
 	}
@@ -72,58 +80,68 @@ func (r *GoodsPostgres) GetAll(limit, offset int) (models.GetAllGoods, error) {
 		Goods: goods,
 	}
 
-	jsonData, err := json.Marshal(response)
-	if err != nil {
-		return models.GetAllGoods{}, err
-	}
-
-	err = r.cache.Set(ctx, key, string(jsonData), 1*time.Minute)
-	if err != nil {
-		return models.GetAllGoods{}, err
-	}
-
 	return response, nil
 }
 
-func (r *GoodsPostgres) GetOne(goodsID, projectID int) (models.Goods, error) {
+func (r *GoodsPostgres) GetOne(ctx context.Context, goodsID, projectID int) (models.Goods, error) {
 	var goods models.Goods
+	key := fmt.Sprintf("goods:%d:%d", goodsID, projectID)
+	cachedGoods, err := r.cache.Get(r.ctx, key)
+	if err == nil {
+		err := json.Unmarshal([]byte(cachedGoods), &goods)
+		if err != nil {
+			log.Printf("Failed to unmarshal cached goods: %v", err)
+		} else {
+			return goods, nil
+		}
+	}
+
 	query := fmt.Sprintf(`SELECT gp.id, gp.project_id, gp.name, gp.description, gp.priority, gp.removed, gp.created_at FROM %s gp WHERE gp.id = $1 AND gp.project_id = $2`, goodsTable)
-	if err := r.db.Get(&goods, query, goodsID, projectID); err != nil {
+	err = r.db.QueryRow(ctx, query, goodsID, projectID).Scan(&goods.ID, &goods.ProjectID, &goods.Name, &goods.Description, &goods.Priority, &goods.Removed, &goods.CreatedAt)
+	if err != nil {
 		return goods, err
 	}
+
+	goodsJson, err := json.Marshal(goods)
+	if err != nil {
+		log.Printf("Failed to marshal goods: %v", err)
+		return goods, err
+	}
+	err = r.cache.Set(ctx, key, string(goodsJson), 1*time.Minute)
+	if err != nil {
+		log.Printf("Failed to cache goods: %v", err)
+	}
+
 	return goods, nil
 }
-
-func (r *GoodsPostgres) Create(projectID int, goods models.Goods) (int, error) {
+func (r *GoodsPostgres) Create(ctx context.Context, projectID int, goods models.Goods) (int, error) {
 	var id int
 	query := fmt.Sprintf(`INSERT INTO %s (project_id, name, description, priority, removed) VALUES ($1, $2, $3, $4, $5) RETURNING id`, goodsTable)
-	row := r.db.QueryRow(query, projectID, goods.Name, goods.Description, goods.Priority, goods.Removed)
-	if err := row.Scan(&id); err != nil {
+	err := r.db.QueryRow(ctx, query, projectID, goods.Name, goods.Description, goods.Priority, goods.Removed).Scan(&id)
+	if err != nil {
 		return 0, err
 	}
 	return id, nil
 }
 
-func (r *GoodsPostgres) Update(goodsID, projectID int, input models.UpdateGoods) error {
-	tx, err := r.db.Begin()
+func (r *GoodsPostgres) Update(ctx context.Context, goodsID, projectID int, input models.UpdateGoods) error {
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback(ctx)
 
 	var exists bool
-	err = tx.QueryRow(fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE id = $1 AND project_id = $2)", goodsTable), goodsID, projectID).Scan(&exists)
+	err = tx.QueryRow(ctx, fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE id = $1 AND project_id = $2)", goodsTable), goodsID, projectID).Scan(&exists)
 	if err != nil {
-		tx.Rollback()
 		return err
 	}
 	if !exists {
-		tx.Rollback()
 		return ErrNotFound
 	}
 
-	_, err = tx.Exec(fmt.Sprintf("SELECT * FROM %s WHERE id = $1 AND project_id = $2 FOR UPDATE", goodsTable), goodsID, projectID)
+	_, err = tx.Exec(ctx, fmt.Sprintf("SELECT * FROM %s WHERE id = $1 AND project_id = $2 FOR UPDATE", goodsTable), goodsID, projectID)
 	if err != nil {
-		tx.Rollback()
 		return err
 	}
 
@@ -146,18 +164,16 @@ func (r *GoodsPostgres) Update(goodsID, projectID int, input models.UpdateGoods)
 
 	query := fmt.Sprintf(`UPDATE %s SET %s WHERE id = $%d`, goodsTable, setQuery, argID)
 	args = append(args, goodsID)
-	_, err = tx.Exec(query, args...)
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
-
-	err = tx.Commit()
+	_, err = tx.Exec(ctx, query, args...)
 	if err != nil {
 		return err
 	}
 
-	ctx := context.Background()
+	err = tx.Commit(ctx)
+	if err != nil {
+		return err
+	}
+
 	key := fmt.Sprintf("goods:%d:%d", goodsID, projectID)
 	err = r.cache.Delete(ctx, key)
 	if err != nil {
@@ -167,23 +183,18 @@ func (r *GoodsPostgres) Update(goodsID, projectID int, input models.UpdateGoods)
 	return nil
 }
 
-func (r *GoodsPostgres) Delete(goodsID, projectID int) error {
+func (r *GoodsPostgres) Delete(ctx context.Context, goodsID, projectID int) error {
 	query := fmt.Sprintf(`UPDATE %s SET removed = true WHERE id = $1 AND project_id = $2`, goodsTable)
-	res, err := r.db.Exec(query, goodsID, projectID)
+	commandTag, err := r.db.Exec(ctx, query, goodsID, projectID)
 	if err != nil {
 		return err
 	}
 
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-
+	rowsAffected := commandTag.RowsAffected()
 	if rowsAffected == 0 {
 		return ErrNotFound
 	}
 
-	ctx := context.Background()
 	key := fmt.Sprintf("goods:%d:%d", goodsID, projectID)
 	err = r.cache.Delete(ctx, key)
 	if err != nil {
@@ -193,42 +204,39 @@ func (r *GoodsPostgres) Delete(goodsID, projectID int) error {
 	return nil
 }
 
-func (r *GoodsPostgres) Reprioritize(goodsID, projectID int, priority int) error {
-	tx, err := r.db.Begin()
+func (r *GoodsPostgres) Reprioritize(ctx context.Context, goodsID, projectID int, priority int) error {
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback(ctx) // Убедитесь, что вызывается Rollback в случае ошибки
 
 	var exists bool
-	err = tx.QueryRow(fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE id = $1 AND project_id = $2)", goodsTable), goodsID, projectID).Scan(&exists)
+	err = tx.QueryRow(ctx, fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE id = $1 AND project_id = $2)", goodsTable), goodsID, projectID).Scan(&exists)
 	if err != nil {
-		tx.Rollback()
 		return err
 	}
 	if !exists {
-		tx.Rollback()
-		return ErrNotFound
+		return ErrNotFound // Предполагается, что ErrNotFound определен где-то в вашем коде
 	}
 
 	query := fmt.Sprintf(`UPDATE %s SET priority = $1 WHERE id = $2 AND project_id = $3`, goodsTable)
-	_, err = tx.Exec(query, priority, goodsID, projectID)
+	_, err = tx.Exec(ctx, query, priority, goodsID, projectID)
 	if err != nil {
 		return err
 	}
 
 	query = fmt.Sprintf(`UPDATE %s SET priority = priority + 1 WHERE project_id = $1 AND priority >= $2`, goodsTable)
-	_, err = tx.Exec(query, projectID, priority)
+	_, err = tx.Exec(ctx, query, projectID, priority)
 	if err != nil {
 		return err
 	}
 
-	err = tx.Commit()
+	err = tx.Commit(ctx)
 	if err != nil {
 		return err
 	}
 
-	ctx := context.Background()
 	key := fmt.Sprintf("goods:%d:%d", goodsID, projectID)
 	err = r.cache.Delete(ctx, key)
 	if err != nil {
