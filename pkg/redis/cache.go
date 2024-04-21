@@ -45,5 +45,6 @@ func (r *RedisCache) GetInt(ctx context.Context, key string) (int, error) {
 }
 
 func (r *RedisCache) SetInt(ctx context.Context, key string, value int, expiration time.Duration) error {
+	// TODO: change
 	return r.client.Set(ctx, key, strconv.Itoa(value), expiration).Err()
 }
