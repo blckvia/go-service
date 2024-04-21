@@ -11,3 +11,6 @@ rdb:
   port: '6379'
   dbname: '0'
   password: ''
+
+nats:
+  url: 'nats://localhost:4222'
