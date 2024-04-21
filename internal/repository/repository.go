@@ -33,7 +33,7 @@ type Repository struct {
 
 func New(ctx context.Context, db *pgx.Conn, cache r.Cache) *Repository {
 	return &Repository{
-		Goods: NewGoodsPostgres(ctx, db, cache),
-		//Projects: NewProjectPostgres(ctx, db),
+		Goods:    NewGoodsPostgres(ctx, db, cache),
+		Projects: NewProjectPostgres(ctx, db),
 	}
 }
