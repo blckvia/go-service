@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"go-service/pkg/redis"
+	"go-service/pkg/tracer"
 
 	"go-service/internal/app"
 	"go-service/internal/handler"
@@ -20,6 +21,8 @@ import (
 )
 
 func main() {
+	ctx := context.Background()
+
 	logger := zap.Must(zap.NewProduction())
 	defer func(logger *zap.Logger) {
 		err := logger.Sync()
@@ -36,7 +39,7 @@ func main() {
 		logger.Fatal("error loading env variables: %w", zap.Error(err))
 	}
 
-	db, err := repository.NewPostgresDB(repository.Config{
+	db, err := repository.NewPostgresDB(ctx, repository.Config{
 		Host:     viper.GetString("db.host"),
 		Port:     viper.GetString("db.port"),
 		Username: os.Getenv("DB_USERNAME"),
@@ -49,15 +52,20 @@ func main() {
 		logger.Fatal("failed to initialize db", zap.Error(err))
 	}
 
-	rdb := redis.NewClient()
-	redisCache := redis.NewRedisCache(rdb)
-	repos := repository.New(db, redisCache)
+	_, err = tracer.InitTracer("http://localhost:14268/api/traces", "go-service")
+	if err != nil {
+		logger.Fatal("failed to initialize tracer", zap.Error(err))
+	}
+
+	app := app.NewApp(viper.GetString("port"), nil, logger)
+	redisCache := redis.NewRedisCache(app.Redis)
+	repos := repository.New(ctx, db, redisCache)
 	services := service.New(repos)
 	handlers := handler.NewHandler(services)
 
-	srv := new(app.Server)
+	app.Server.Handler = handlers.InitRoutes()
 	go func() {
-		if err := srv.Run(viper.GetString("port"), handlers.InitRoutes()); err != nil {
+		if err := app.Run(); err != nil {
 			logger.Fatal("failed to run server: %w", zap.Error(err))
 		}
 	}()
@@ -70,11 +78,11 @@ func main() {
 
 	logger.Info("app shutting down")
 
-	if err := srv.Shutdown(context.Background()); err != nil {
+	if err := app.Shutdown(context.Background()); err != nil {
 		logger.Error("failed to shutdown server: %w", zap.Error(err))
 	}
 
-	if err := db.Close(); err != nil {
+	if err := db.Close(ctx); err != nil {
 		logger.Error("failed to close db: %w", zap.Error(err))
 	}
 }
