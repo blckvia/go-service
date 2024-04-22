@@ -35,8 +35,6 @@ func NewGoodsPostgres(ctx context.Context, db *pgx.Conn, cache r.Cache, logger *
 	}
 }
 
-// TODO: rewrite with r.db.Preparex()
-// TODO: QueryBuilder (squirell package)
 // GetAll get all Goods
 func (r *GoodsPostgres) GetAll(ctx context.Context, limit, offset int) (models.GetAllGoods, error) {
 	var goods []models.Goods
