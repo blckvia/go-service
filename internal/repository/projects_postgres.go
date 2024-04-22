@@ -33,7 +33,12 @@ func NewProjectPostgres(ctx context.Context, db *pgx.Conn, cache r.Cache, logger
 func (r *ProjectPostgres) Create(ctx context.Context, project models.Project) (int, error) {
 	var id int
 	query := fmt.Sprintf(`INSERT INTO %s (name) VALUES ($1) RETURNING id`, projectsTable)
-	row := r.db.QueryRow(ctx, query, project.Name)
+	_, err := r.db.Prepare(ctx, "createProject", query)
+	if err != nil {
+		return 0, err
+	}
+
+	row := r.db.QueryRow(ctx, "createProject", project.Name)
 	if err := row.Scan(&id); err != nil {
 		return 0, err
 	}
@@ -45,21 +50,24 @@ func (r *ProjectPostgres) Update(ctx context.Context, projectID int, input model
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback(ctx)
 
 	var exists bool
-	err = tx.QueryRow(ctx, fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE id = $1)", projectsTable), projectID).Scan(&exists)
+	_, err = r.db.Prepare(ctx, "projectExists", fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE id = $1)", projectsTable))
 	if err != nil {
-		tx.Rollback(ctx)
+		return err
+	}
+
+	err = tx.QueryRow(ctx, "projectExists", projectID).Scan(&exists)
+	if err != nil {
 		return err
 	}
 	if !exists {
-		tx.Rollback(ctx)
 		return ErrNotFound
 	}
 
-	_, err = tx.Exec(ctx, fmt.Sprintf("SELECT * FROM %s WHERE id = $1 FOR UPDATE", projectsTable), projectID)
+	_, err = tx.Exec(ctx, fmt.Sprintf("SELECT p.id, p.name, p.created_at FROM %s p WHERE id = $1 FOR UPDATE", projectsTable), projectID)
 	if err != nil {
-		tx.Rollback(ctx)
 		return err
 	}
 
@@ -79,7 +87,6 @@ func (r *ProjectPostgres) Update(ctx context.Context, projectID int, input model
 	args = append(args, projectID)
 	_, err = tx.Exec(ctx, query, args...)
 	if err != nil {
-		tx.Rollback(ctx)
 		return err
 	}
 
@@ -103,6 +110,7 @@ func (r *ProjectPostgres) Delete(ctx context.Context, projectID int) error {
 	if err != nil {
 		return err
 	}
+
 	rowsAffected := res.RowsAffected()
 	if rowsAffected == 0 {
 		return ErrNotFound
@@ -119,7 +127,12 @@ func (r *ProjectPostgres) Delete(ctx context.Context, projectID int) error {
 func (r *ProjectPostgres) GetAll(ctx context.Context, limit, offset int) (models.GetAllProjects, error) {
 	var projects []models.Project
 	query := fmt.Sprintf(`SELECT p.id, p.name, p.created_at FROM %s p LIMIT $1 OFFSET $2`, projectsTable)
-	rows, err := r.db.Query(ctx, query, limit, offset)
+	_, err := r.db.Prepare(ctx, "getAllProjects", query)
+	if err != nil {
+		return models.GetAllProjects{}, err
+	}
+
+	rows, err := r.db.Query(ctx, "getAllProjects", limit, offset)
 	if err != nil {
 		return models.GetAllProjects{}, err
 	}
@@ -138,7 +151,12 @@ func (r *ProjectPostgres) GetAll(ctx context.Context, limit, offset int) (models
 	}
 
 	var total int
-	err = r.db.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s p`, projectsTable)).Scan(&total)
+	_, err = r.db.Prepare(ctx, "countAllProjects", fmt.Sprintf(`SELECT COUNT(p.id) FROM %s p`, projectsTable))
+	if err != nil {
+		return models.GetAllProjects{}, err
+	}
+
+	err = r.db.QueryRow(ctx, "countAllProjects").Scan(&total)
 	if err != nil {
 		return models.GetAllProjects{}, err
 	}
@@ -170,7 +188,12 @@ func (r *ProjectPostgres) GetByID(ctx context.Context, projectID int) (models.Pr
 	}
 
 	query := fmt.Sprintf(`SELECT p.id, p.name, p.created_at FROM %s p WHERE p.id = $1`, projectsTable)
-	row := r.db.QueryRow(ctx, query, projectID)
+	_, err = r.db.Prepare(ctx, "getProjectByID", query)
+	if err != nil {
+		return project, err
+	}
+
+	row := r.db.QueryRow(ctx, "getProjectByID", projectID)
 	if err := row.Scan(&project.ID, &project.Name, &project.CreatedAt); err != nil {
 		return project, err
 	}
