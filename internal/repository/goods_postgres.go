@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"go.uber.org/zap"
 
 	"go-service/internal/models"
 	r "go-service/pkg/redis"
@@ -18,17 +18,19 @@ import (
 var ErrNotFound = errors.New("record not found")
 
 type GoodsPostgres struct {
-	ctx   context.Context
-	db    *pgx.Conn
-	cache r.Cache
+	ctx    context.Context
+	db     *pgx.Conn
+	cache  r.Cache
+	logger *zap.Logger
 	//nats  *nats.Conn
 }
 
-func NewGoodsPostgres(ctx context.Context, db *pgx.Conn, cache r.Cache /*nats *nats.Conn*/) *GoodsPostgres {
+func NewGoodsPostgres(ctx context.Context, db *pgx.Conn, cache r.Cache, logger *zap.Logger /*nats *nats.Conn*/) *GoodsPostgres {
 	return &GoodsPostgres{
-		ctx:   ctx,
-		db:    db,
-		cache: cache,
+		ctx:    ctx,
+		db:     db,
+		cache:  cache,
+		logger: logger,
 		//nats:  nats,
 	}
 }
@@ -86,11 +88,11 @@ func (r *GoodsPostgres) GetAll(ctx context.Context, limit, offset int) (models.G
 func (r *GoodsPostgres) GetOne(ctx context.Context, goodsID, projectID int) (models.Goods, error) {
 	var goods models.Goods
 	key := fmt.Sprintf("goods:%d:%d", goodsID, projectID)
-	cachedGoods, err := r.cache.Get(r.ctx, key)
+	cachedGoods, err := r.cache.Get(ctx, key)
 	if err == nil {
 		err := json.Unmarshal([]byte(cachedGoods), &goods)
 		if err != nil {
-			log.Printf("Failed to unmarshal cached goods: %v", err)
+			r.logger.Error("Failed to unmarshal cached goods: %v", zap.Error(err))
 		} else {
 			return goods, nil
 		}
@@ -104,12 +106,12 @@ func (r *GoodsPostgres) GetOne(ctx context.Context, goodsID, projectID int) (mod
 
 	goodsJson, err := json.Marshal(goods)
 	if err != nil {
-		log.Printf("Failed to marshal goods: %v", err)
+		r.logger.Error("Failed to marshal goods: %v", zap.Error(err))
 		return goods, err
 	}
 	err = r.cache.Set(ctx, key, string(goodsJson), 1*time.Minute)
 	if err != nil {
-		log.Printf("Failed to cache goods: %v", err)
+		r.logger.Error("Failed to cache goods: %v", zap.Error(err))
 	}
 
 	return goods, nil
@@ -177,7 +179,7 @@ func (r *GoodsPostgres) Update(ctx context.Context, goodsID, projectID int, inpu
 	key := fmt.Sprintf("goods:%d:%d", goodsID, projectID)
 	err = r.cache.Delete(ctx, key)
 	if err != nil {
-		log.Printf("Failed to invalidate cache for key %s: %v", key, err)
+		r.logger.Error("Failed to invalidate cache for key %s: %v", zap.String("key", key), zap.Error(err))
 	}
 
 	return nil
@@ -198,7 +200,7 @@ func (r *GoodsPostgres) Delete(ctx context.Context, goodsID, projectID int) erro
 	key := fmt.Sprintf("goods:%d:%d", goodsID, projectID)
 	err = r.cache.Delete(ctx, key)
 	if err != nil {
-		log.Printf("Failed to invalidate cache for key %s: %v", key, err)
+		r.logger.Error("Failed to invalidate cache for key %s: %v", zap.String("key", key), zap.Error(err))
 	}
 
 	return nil
@@ -240,7 +242,7 @@ func (r *GoodsPostgres) Reprioritize(ctx context.Context, goodsID, projectID int
 	key := fmt.Sprintf("goods:%d:%d", goodsID, projectID)
 	err = r.cache.Delete(ctx, key)
 	if err != nil {
-		log.Printf("Failed to invalidate cache for key %s: %v", key, err)
+		r.logger.Error("Failed to invalidate cache for key %s: %v", zap.String("key", key), zap.Error(err))
 	}
 
 	return nil
