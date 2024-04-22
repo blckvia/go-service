@@ -59,7 +59,7 @@ func main() {
 
 	app := app.NewApp(viper.GetString("port"), nil, logger)
 	redisCache := redis.NewRedisCache(app.Redis)
-	repos := repository.New(ctx, db, redisCache)
+	repos := repository.New(ctx, db, redisCache, logger)
 	services := service.New(repos)
 	handlers := handler.NewHandler(services)
 
