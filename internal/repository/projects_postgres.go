@@ -2,23 +2,31 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"go.uber.org/zap"
 
 	"go-service/internal/models"
+	r "go-service/pkg/redis"
 )
 
 type ProjectPostgres struct {
-	ctx context.Context
-	db  *pgx.Conn
+	ctx    context.Context
+	db     *pgx.Conn
+	cache  r.Cache
+	logger *zap.Logger
 }
 
-func NewProjectPostgres(ctx context.Context, db *pgx.Conn) *ProjectPostgres {
+func NewProjectPostgres(ctx context.Context, db *pgx.Conn, cache r.Cache, logger *zap.Logger) *ProjectPostgres {
 	return &ProjectPostgres{
-		ctx: ctx,
-		db:  db,
+		ctx:    ctx,
+		db:     db,
+		cache:  cache,
+		logger: logger,
 	}
 }
 
@@ -80,6 +88,12 @@ func (r *ProjectPostgres) Update(ctx context.Context, projectID int, input model
 		return err
 	}
 
+	key := fmt.Sprintf("project:%d", projectID)
+	err = r.cache.Delete(ctx, key)
+	if err != nil {
+		r.logger.Error("Failed to invalidate cache for key %s: %v", zap.String("key", key), zap.Error(err))
+	}
+
 	return nil
 }
 
@@ -92,6 +106,12 @@ func (r *ProjectPostgres) Delete(ctx context.Context, projectID int) error {
 	rowsAffected := res.RowsAffected()
 	if rowsAffected == 0 {
 		return ErrNotFound
+	}
+
+	key := fmt.Sprintf("project:%d", projectID)
+	err = r.cache.Delete(ctx, key)
+	if err != nil {
+		r.logger.Error("Failed to invalidate cache for key %s: %v", zap.String("key", key), zap.Error(err))
 	}
 
 	return nil
@@ -138,10 +158,31 @@ func (r *ProjectPostgres) GetAll(ctx context.Context, limit, offset int) (models
 }
 func (r *ProjectPostgres) GetByID(ctx context.Context, projectID int) (models.Project, error) {
 	var project models.Project
+	key := fmt.Sprintf("project:%d", projectID)
+	cachedProject, err := r.cache.Get(ctx, key)
+	if err == nil {
+		err := json.Unmarshal([]byte(cachedProject), &project)
+		if err != nil {
+			r.logger.Error("Failed to unmarshal cached project: %v", zap.Error(err))
+		} else {
+			return project, nil
+		}
+	}
+
 	query := fmt.Sprintf(`SELECT p.id, p.name, p.created_at FROM %s p WHERE p.id = $1`, projectsTable)
 	row := r.db.QueryRow(ctx, query, projectID)
 	if err := row.Scan(&project.ID, &project.Name, &project.CreatedAt); err != nil {
 		return project, err
+	}
+
+	projectJson, err := json.Marshal(project)
+	if err != nil {
+		r.logger.Error("Failed to marshal project: %v", zap.Error(err))
+		return project, err
+	}
+	err = r.cache.Set(ctx, key, string(projectJson), 1*time.Minute)
+	if err != nil {
+		r.logger.Error("Failed to cache project: %v", zap.Error(err))
 	}
 
 	return project, nil

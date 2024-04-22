@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5"
+	"go.uber.org/zap"
 
 	"go-service/internal/models"
 	r "go-service/pkg/redis"
@@ -31,9 +32,9 @@ type Repository struct {
 	Goods
 }
 
-func New(ctx context.Context, db *pgx.Conn, cache r.Cache) *Repository {
+func New(ctx context.Context, db *pgx.Conn, cache r.Cache, logger *zap.Logger) *Repository {
 	return &Repository{
-		Goods:    NewGoodsPostgres(ctx, db, cache),
-		Projects: NewProjectPostgres(ctx, db),
+		Goods:    NewGoodsPostgres(ctx, db, cache, logger),
+		Projects: NewProjectPostgres(ctx, db, cache, logger),
 	}
 }
