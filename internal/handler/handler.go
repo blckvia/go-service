@@ -4,6 +4,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
+	"github.com/swaggo/files"
+	"github.com/swaggo/gin-swagger"
+
+	_ "go-service/docs"
+
 	"go-service/internal/service"
 )
 
@@ -11,7 +16,7 @@ type Handler struct {
 	services *service.Service
 }
 
-func NewHandler(services *service.Service) *Handler {
+func New(services *service.Service) *Handler {
 	return &Handler{services: services}
 }
 
@@ -19,6 +24,8 @@ func (h *Handler) InitRoutes() *gin.Engine {
 	router := gin.New()
 
 	router.Use(otelgin.Middleware("go-service"))
+
+	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	api := router.Group("/api")
 	{

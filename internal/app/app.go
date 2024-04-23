@@ -14,7 +14,14 @@ import (
 	r "go-service/pkg/redis"
 )
 
-// TODO: zap logger, redis, clickhouse, nats, config application
+// @title Go Service API
+// @version 1.0
+// @description API Server for Go Service
+
+// @host localhost:8000
+// @BasePath /
+
+// TODO: clickhouse, nats, config application
 type App struct {
 	Server *http.Server
 	Logger *zap.Logger

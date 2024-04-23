@@ -1,0 +1,520 @@
+basePath: /
+definitions:
+  handler.errorResponse:
+    properties:
+      message:
+        type: string
+    type: object
+  models.GetAllProjects:
+    properties:
+      meta:
+        $ref: '#/definitions/models.MetaProjects'
+      projects:
+        items:
+          $ref: '#/definitions/models.Project'
+        type: array
+    type: object
+  models.Goods:
+    properties:
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      priority:
+        type: integer
+      project_id:
+        type: integer
+      removed:
+        type: boolean
+    type: object
+  models.MetaProjects:
+    properties:
+      limit:
+        type: integer
+      offset:
+        type: integer
+      total:
+        type: integer
+    type: object
+  models.Project:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+    type: object
+  models.UpdateGoods:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+    type: object
+  models.UpdateProject:
+    properties:
+      name:
+        type: string
+    type: object
+host: localhost:8000
+info:
+  contact: {}
+  description: API Server for Go Service
+  title: Go Service API
+  version: "1.0"
+paths:
+  /api/goods/{project_id}:
+    post:
+      consumes:
+      - application/json
+      description: Create one item of goods
+      operationId: create-goods
+      parameters:
+      - description: goods info
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/models.UpdateGoods'
+      - description: project_id
+        in: path
+        name: project_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Goods'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        default:
+          description: ""
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+      summary: Create item
+      tags:
+      - Goods
+  /api/goods/{project_id}/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete one item of goods
+      operationId: delete-item
+      parameters:
+      - description: project_id
+        in: path
+        name: project_id
+        required: true
+        type: integer
+      - description: id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        default:
+          description: ""
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+      summary: Delete item
+      tags:
+      - Goods
+    get:
+      consumes:
+      - application/json
+      description: Get one item of goods
+      operationId: get-item
+      parameters:
+      - description: project_id
+        in: path
+        name: project_id
+        required: true
+        type: integer
+      - description: id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Goods'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        default:
+          description: ""
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+      summary: Get one item
+      tags:
+      - Goods
+    patch:
+      consumes:
+      - application/json
+      description: Update one item of goods
+      operationId: update-item
+      parameters:
+      - description: goods info
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/models.UpdateGoods'
+      - description: project_id
+        in: path
+        name: project_id
+        required: true
+        type: integer
+      - description: id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Goods'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        default:
+          description: ""
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+      summary: Update item
+      tags:
+      - Goods
+  /api/goods/list:
+    get:
+      consumes:
+      - application/json
+      description: Get list of goods
+      operationId: get-goods
+      parameters:
+      - description: limit
+        in: query
+        name: limit
+        type: integer
+      - description: offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.Goods'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        default:
+          description: ""
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+      summary: Get list of goods
+      tags:
+      - Goods
+  /api/goods/prioritize/{project_id}/{id}:
+    patch:
+      consumes:
+      - application/json
+      description: Reprioritize one item of goods
+      operationId: reprioritize-item
+      parameters:
+      - description: priority
+        in: query
+        name: priority
+        required: true
+        type: integer
+      - description: project_id
+        in: path
+        name: project_id
+        required: true
+        type: integer
+      - description: id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Goods'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        default:
+          description: ""
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+      summary: Reprioritize item
+      tags:
+      - Goods
+  /api/projects:
+    get:
+      consumes:
+      - application/json
+      description: Get all projects
+      operationId: get-all-projects
+      parameters:
+      - description: limit
+        in: query
+        name: limit
+        type: integer
+      - description: offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.GetAllProjects'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        default:
+          description: ""
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+      summary: Get all projects
+      tags:
+      - Projects
+    post:
+      consumes:
+      - application/json
+      description: Create project
+      operationId: create-project
+      parameters:
+      - description: project info
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/models.UpdateProject'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Goods'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        default:
+          description: ""
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+      summary: Create project
+      tags:
+      - Projects
+  /api/projects/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete project
+      operationId: delete-project
+      parameters:
+      - description: project_id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        default:
+          description: ""
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+      summary: Delete project
+      tags:
+      - Projects
+    get:
+      consumes:
+      - application/json
+      description: Get project
+      operationId: get-project
+      parameters:
+      - description: project_id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Project'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        default:
+          description: ""
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+      summary: Get project
+      tags:
+      - Projects
+    patch:
+      consumes:
+      - application/json
+      description: Get project By ID
+      operationId: update-project
+      parameters:
+      - description: project info
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/models.UpdateProject'
+      - description: project_id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Project'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+        default:
+          description: ""
+          schema:
+            $ref: '#/definitions/handler.errorResponse'
+      summary: Update project
+      tags:
+      - Projects
+swagger: "2.0"
