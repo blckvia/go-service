@@ -2,10 +2,14 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"go-service/internal/models"
 	"go-service/internal/repository"
@@ -35,14 +39,22 @@ func (h *Handler) createProject(c *gin.Context) {
 		return
 	}
 
-	id, err := h.services.Projects.Create(input)
+	ctx, span := h.tracer.Start(c.Request.Context(), "createProject")
+	id, err := h.services.Projects.Create(ctx, input)
 	if err != nil {
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	project, err := h.services.Projects.GetByID(id)
+	defer span.End()
+	span.AddEvent("created project", trace.WithAttributes(attribute.String("name", input.Name)))
+
+	project, err := h.services.Projects.GetByID(ctx, id)
 	if err != nil {
+		span.RecordError(err, trace.WithAttributes(
+			attribute.String("error", err.Error()),
+		))
+		span.SetStatus(codes.Error, "error")
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -66,8 +78,17 @@ func (h *Handler) createProject(c *gin.Context) {
 func (h *Handler) getAllProjects(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
-	projects, err := h.services.Projects.GetAll(limit, offset)
+
+	ctx, span := h.tracer.Start(c.Request.Context(), "getAllProjects")
+	defer span.End()
+
+	projects, err := h.services.Projects.GetAll(ctx, limit, offset)
+	span.AddEvent("get all projects", trace.WithAttributes(attribute.String("total", fmt.Sprint(len(projects.Projects)))))
 	if err != nil {
+		span.RecordError(err, trace.WithAttributes(
+			attribute.String("error", err.Error()),
+		))
+		span.SetStatus(codes.Error, "error")
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -95,8 +116,16 @@ func (h *Handler) getProject(c *gin.Context) {
 		return
 	}
 
-	project, err := h.services.Projects.GetByID(projectID)
+	ctx, span := h.tracer.Start(c.Request.Context(), "getProject")
+	defer span.End()
+
+	span.AddEvent("get project", trace.WithAttributes(attribute.String("id", fmt.Sprint(projectID))))
+	project, err := h.services.Projects.GetByID(ctx, projectID)
 	if err != nil {
+		span.RecordError(err, trace.WithAttributes(
+			attribute.String("error", err.Error()),
+		))
+		span.SetStatus(codes.Error, "error")
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -131,17 +160,34 @@ func (h *Handler) updateProject(c *gin.Context) {
 		return
 	}
 
-	if err := h.services.Projects.Update(projectID, input); err != nil {
+	ctx, span := h.tracer.Start(c.Request.Context(), "updateProject")
+	defer span.End()
+	span.AddEvent("update project", trace.WithAttributes(attribute.String("id", fmt.Sprint(projectID))))
+
+	if err := h.services.Projects.Update(ctx, projectID, input); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
+			span.RecordError(err, trace.WithAttributes(
+				attribute.String("error", err.Error()),
+			))
+			span.SetStatus(codes.Error, "error")
 			newDetailedErrorResponse(c, http.StatusNotFound, 3, "errors.project.NotFound", "record not found")
 			return
 		}
+		span.RecordError(err, trace.WithAttributes(
+			attribute.String("error", err.Error()),
+		))
+		span.SetStatus(codes.Error, "error")
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	updatedProjects, err := h.services.Projects.GetByID(projectID)
+	updatedProjects, err := h.services.Projects.GetByID(ctx, projectID)
+	span.AddEvent("get updated project", trace.WithAttributes(attribute.String("updated project", fmt.Sprint(updatedProjects.Name, fmt.Sprint(updatedProjects.ID)))))
 	if err != nil {
+		span.RecordError(err, trace.WithAttributes(
+			attribute.String("error", err.Error()),
+		))
+		span.SetStatus(codes.Error, "error")
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -169,8 +215,23 @@ func (h *Handler) deleteProject(c *gin.Context) {
 		return
 	}
 
-	err = h.services.Projects.Delete(projectID)
-	if err != nil {
+	ctx, span := h.tracer.Start(c.Request.Context(), "deleteProject")
+	defer span.End()
+	span.AddEvent("delete project", trace.WithAttributes(attribute.String("id", fmt.Sprint(projectID))))
+
+	if err := h.services.Projects.Delete(ctx, projectID); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			span.RecordError(err, trace.WithAttributes(
+				attribute.String("error", err.Error()),
+			))
+			span.SetStatus(codes.Error, "error")
+			newDetailedErrorResponse(c, http.StatusNotFound, 3, "errors.project.NotFound", "record not found")
+			return
+		}
+		span.RecordError(err, trace.WithAttributes(
+			attribute.String("error", err.Error()),
+		))
+		span.SetStatus(codes.Error, "error")
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
