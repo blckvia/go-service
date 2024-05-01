@@ -8,7 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nats-io/nats.go"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"go-service/internal/models"
@@ -19,32 +23,50 @@ var ErrNotFound = errors.New("record not found")
 
 type GoodsPostgres struct {
 	ctx    context.Context
-	db     *pgx.Conn
+	db     *pgxpool.Pool
 	cache  r.Cache
 	logger *zap.Logger
-	//nats  *nats.Conn
+	nats   *nats.Conn
+	tracer trace.Tracer
 }
 
-func NewGoodsPostgres(ctx context.Context, db *pgx.Conn, cache r.Cache, logger *zap.Logger /*nats *nats.Conn*/) *GoodsPostgres {
+func NewGoodsPostgres(ctx context.Context, db *pgxpool.Pool, cache r.Cache, logger *zap.Logger, nats *nats.Conn, tracer trace.Tracer) *GoodsPostgres {
 	return &GoodsPostgres{
 		ctx:    ctx,
 		db:     db,
 		cache:  cache,
 		logger: logger,
-		//nats:  nats,
+		nats:   nats,
+		tracer: tracer,
 	}
 }
 
 // GetAll get all Goods
-func (r *GoodsPostgres) GetAll(limit, offset int) (models.GetAllGoods, error) {
+// TODO: create span to DB
+// TODO: metrics cache hit
+func (r *GoodsPostgres) GetAll(ctx context.Context, limit, offset int) (models.GetAllGoods, error) {
 	var goods []models.Goods
+
+	_, span := r.tracer.Start(ctx, "GetAllGoods")
+	defer span.End()
+
 	query := fmt.Sprintf(`SELECT gp.id, gp.project_id, gp.name, gp.description, gp.priority, gp.removed, gp.created_at FROM %s gp LIMIT $1 OFFSET $2`, goodsTable)
-	_, err := r.db.Prepare(r.ctx, "getAllGoods", query)
+
+	span.AddEvent("getAll", trace.WithAttributes(attribute.String("query", query)))
+	conn, err := r.db.Acquire(r.ctx)
+	if err != nil {
+		return models.GetAllGoods{}, err
+	}
+	defer conn.Release()
+
+	pgxConn := conn.Conn()
+
+	_, err = pgxConn.Prepare(r.ctx, "getAllGoods", query)
 	if err != nil {
 		return models.GetAllGoods{}, err
 	}
 
-	rows, err := r.db.Query(r.ctx, "getAllGoods", limit, offset)
+	rows, err := pgxConn.Query(r.ctx, "getAllGoods", limit, offset)
 	if err != nil {
 		return models.GetAllGoods{}, err
 	}
@@ -64,27 +86,29 @@ func (r *GoodsPostgres) GetAll(limit, offset int) (models.GetAllGoods, error) {
 
 	var total int
 	countQuery := fmt.Sprintf(`SELECT COUNT(gp.id) FROM %s gp`, goodsTable)
-	_, err = r.db.Prepare(r.ctx, "countAllGoods", countQuery)
+	_, err = pgxConn.Prepare(r.ctx, "countAllGoods", countQuery)
 	if err != nil {
 		return models.GetAllGoods{}, err
 	}
 
-	err = r.db.QueryRow(r.ctx, "countAllGoods").Scan(&total)
+	err = pgxConn.QueryRow(r.ctx, "countAllGoods").Scan(&total)
 	if err != nil {
 		return models.GetAllGoods{}, err
 	}
+	span.AddEvent("countAll", trace.WithAttributes(attribute.Int("total", total)))
 
 	var removed int
 	removedQuery := fmt.Sprintf(`SELECT COUNT(gp.id) FROM %s gp WHERE gp.removed = true`, goodsTable)
-	_, err = r.db.Prepare(r.ctx, "countRemovedGoods", removedQuery)
+	_, err = pgxConn.Prepare(r.ctx, "countRemovedGoods", removedQuery)
 	if err != nil {
 		return models.GetAllGoods{}, err
 	}
 
-	err = r.db.QueryRow(r.ctx, "countRemovedGoods").Scan(&removed)
+	err = pgxConn.QueryRow(r.ctx, "countRemovedGoods").Scan(&removed)
 	if err != nil {
 		return models.GetAllGoods{}, err
 	}
+	span.AddEvent("countRemoved", trace.WithAttributes(attribute.Int("removed", removed)))
 
 	meta := models.Meta{
 		Total:   total,
@@ -102,8 +126,15 @@ func (r *GoodsPostgres) GetAll(limit, offset int) (models.GetAllGoods, error) {
 }
 
 // GetOne one item from Goods
-func (r *GoodsPostgres) GetOne(goodsID, projectID int) (models.Goods, error) {
+func (r *GoodsPostgres) GetOne(ctx context.Context, goodsID, projectID int) (models.Goods, error) {
 	var goods models.Goods
+	// TODO: create redis span
+	// TODO: metrics cache hit
+
+	_, span := r.tracer.Start(ctx, "GetOneItem")
+	defer span.End()
+
+	span.AddEvent("redis get", trace.WithAttributes(attribute.String("key", fmt.Sprintf("goods:%d:%d", goodsID, projectID))))
 	key := fmt.Sprintf("goods:%d:%d", goodsID, projectID)
 	cachedGoods, err := r.cache.Get(r.ctx, key)
 	if err == nil {
@@ -116,23 +147,39 @@ func (r *GoodsPostgres) GetOne(goodsID, projectID int) (models.Goods, error) {
 	}
 
 	query := fmt.Sprintf(`SELECT gp.id, gp.project_id, gp.name, gp.description, gp.priority, gp.removed, gp.created_at FROM %s gp WHERE gp.id = $1 AND gp.project_id = $2`, goodsTable)
-	_, err = r.db.Prepare(r.ctx, "getOneItem", query)
+
+	conn, err := r.db.Acquire(r.ctx)
+	if err != nil {
+		return goods, err
+	}
+	defer conn.Release()
+
+	pgxConn := conn.Conn()
+
+	_, err = pgxConn.Prepare(r.ctx, "getOneItem", query)
 	if err != nil {
 		return goods, err
 	}
 
-	err = r.db.QueryRow(r.ctx, "getOneItem", goodsID, projectID).Scan(&goods.ID, &goods.ProjectID, &goods.Name, &goods.Description, &goods.Priority, &goods.Removed, &goods.CreatedAt)
+	err = pgxConn.QueryRow(r.ctx, "getOneItem", goodsID, projectID).Scan(&goods.ID, &goods.ProjectID, &goods.Name, &goods.Description, &goods.Priority, &goods.Removed, &goods.CreatedAt)
 	if err != nil {
 		return goods, err
 	}
-
+	span.AddEvent("write goods in JSON")
 	goodsJson, err := json.Marshal(goods)
+
 	if err != nil {
+		span.RecordError(err, trace.WithAttributes(attribute.String("error", err.Error())))
+		span.SetStatus(codes.Error, err.Error())
 		r.logger.Error("Failed to marshal goods: %v", zap.Error(err))
 		return goods, err
 	}
+
+	span.AddEvent("redis set", trace.WithAttributes(attribute.String("key", fmt.Sprintf("goods:%d:%d", goodsID, projectID))))
 	err = r.cache.Set(r.ctx, key, string(goodsJson), 1*time.Minute)
 	if err != nil {
+		span.RecordError(err, trace.WithAttributes(attribute.String("error", err.Error())))
+		span.SetStatus(codes.Error, err.Error())
 		r.logger.Error("Failed to cache goods: %v", zap.Error(err))
 	}
 
@@ -140,15 +187,29 @@ func (r *GoodsPostgres) GetOne(goodsID, projectID int) (models.Goods, error) {
 }
 
 // Create method creates a new item of Goods
-func (r *GoodsPostgres) Create(projectID int, goods models.Goods) (int, error) {
+func (r *GoodsPostgres) Create(ctx context.Context, projectID int, goods models.Goods) (int, error) {
 	var id int
+
+	_, span := r.tracer.Start(ctx, "CreateItem")
+	defer span.End()
+
 	query := fmt.Sprintf(`INSERT INTO %s (project_id, name, description, priority, removed) VALUES ($1, $2, $3, $4, $5) RETURNING id`, goodsTable)
-	_, err := r.db.Prepare(r.ctx, "createItem", query)
+
+	conn, err := r.db.Acquire(r.ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer conn.Release()
+
+	pgxConn := conn.Conn()
+
+	_, err = pgxConn.Prepare(r.ctx, "createItem", query)
 	if err != nil {
 		return 0, err
 	}
 
-	err = r.db.QueryRow(r.ctx, "createItem", projectID, goods.Name, goods.Description, goods.Priority, goods.Removed).Scan(&id)
+	span.AddEvent("create item", trace.WithAttributes(attribute.String("query", query)))
+	err = pgxConn.QueryRow(r.ctx, "createItem", projectID, goods.Name, goods.Description, goods.Priority, goods.Removed).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
@@ -157,25 +218,27 @@ func (r *GoodsPostgres) Create(projectID int, goods models.Goods) (int, error) {
 }
 
 // Update method updates item of Goods
-func (r *GoodsPostgres) Update(goodsID, projectID int, input models.UpdateGoods) error {
+func (r *GoodsPostgres) Update(ctx context.Context, goodsID, projectID int, input models.UpdateGoods) error {
 	tx, err := r.db.Begin(r.ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(r.ctx)
 
+	_, span := r.tracer.Start(ctx, "UpdateItem")
+	defer span.End()
+
 	var exists bool
-	_, err = r.db.Prepare(r.ctx, "checkGoodsExists", fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE id = $1 AND project_id = $2)", goodsTable))
-	if err != nil {
-		return err
-	}
-	err = tx.QueryRow(r.ctx, "checkGoodsExists", goodsID, projectID).Scan(&exists)
+	err = tx.QueryRow(r.ctx, fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE id = $1 AND project_id = $2)", goodsTable), goodsID, projectID).Scan(&exists)
 	if err != nil {
 		return err
 	}
 	if !exists {
+		span.RecordError(err, trace.WithAttributes(attribute.String("error", err.Error())))
+		span.SetStatus(codes.Error, err.Error())
 		return ErrNotFound
 	}
+	span.AddEvent("update item", trace.WithAttributes(attribute.Int("goodsID", goodsID), attribute.Int("projectID", projectID), attribute.Bool("exists", exists)))
 
 	_, err = tx.Exec(r.ctx, fmt.Sprintf("SELECT gp.id, gp.project_id, gp.name, gp.description, gp.priority, gp.removed, gp.created_at FROM %s gp WHERE gp.id = $1 AND gp.project_id = $2 FOR UPDATE", goodsTable), goodsID, projectID)
 	if err != nil {
@@ -199,6 +262,7 @@ func (r *GoodsPostgres) Update(goodsID, projectID int, input models.UpdateGoods)
 
 	setQuery := strings.Join(setValues, ", ")
 
+	span.AddEvent("set query", trace.WithAttributes(attribute.String("setQuery", setQuery)))
 	query := fmt.Sprintf(`UPDATE %s SET %s WHERE id = $%d`, goodsTable, setQuery, argID)
 	args = append(args, goodsID)
 	_, err = tx.Exec(r.ctx, query, args...)
@@ -211,9 +275,12 @@ func (r *GoodsPostgres) Update(goodsID, projectID int, input models.UpdateGoods)
 		return err
 	}
 
+	span.AddEvent("invalidate goods in cache", trace.WithAttributes(attribute.String("key", fmt.Sprintf("goods:%d:%d", goodsID, projectID))))
 	key := fmt.Sprintf("goods:%d:%d", goodsID, projectID)
 	err = r.cache.Delete(r.ctx, key)
 	if err != nil {
+		span.RecordError(err, trace.WithAttributes(attribute.String("Invalidate error", err.Error())))
+		span.SetStatus(codes.Error, err.Error())
 		r.logger.Error("Failed to invalidate cache for key %s: %v", zap.String("key", key), zap.Error(err))
 	}
 
@@ -221,10 +288,16 @@ func (r *GoodsPostgres) Update(goodsID, projectID int, input models.UpdateGoods)
 }
 
 // Delete marks item of Goods as deleted
-func (r *GoodsPostgres) Delete(goodsID, projectID int) error {
+func (r *GoodsPostgres) Delete(ctx context.Context, goodsID, projectID int) error {
+	_, span := r.tracer.Start(ctx, "DeleteItem")
+	defer span.End()
+
 	query := fmt.Sprintf(`UPDATE %s SET removed = true WHERE id = $1 AND project_id = $2`, goodsTable)
+	span.AddEvent("delete item", trace.WithAttributes(attribute.String("query", query)))
 	commandTag, err := r.db.Exec(r.ctx, query, goodsID, projectID)
 	if err != nil {
+		span.RecordError(err, trace.WithAttributes(attribute.String("error", err.Error())))
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 
@@ -233,9 +306,12 @@ func (r *GoodsPostgres) Delete(goodsID, projectID int) error {
 		return ErrNotFound
 	}
 
+	span.AddEvent("invalidate goods in cache", trace.WithAttributes(attribute.String("key", fmt.Sprintf("goods:%d:%d", goodsID, projectID))))
 	key := fmt.Sprintf("goods:%d:%d", goodsID, projectID)
 	err = r.cache.Delete(r.ctx, key)
 	if err != nil {
+		span.RecordError(err, trace.WithAttributes(attribute.String("error", err.Error())))
+		span.SetStatus(codes.Error, err.Error())
 		r.logger.Error("Failed to invalidate cache for key %s: %v", zap.String("key", key), zap.Error(err))
 	}
 
@@ -243,19 +319,18 @@ func (r *GoodsPostgres) Delete(goodsID, projectID int) error {
 }
 
 // Reprioritize method changes priority of item of Goods
-func (r *GoodsPostgres) Reprioritize(goodsID, projectID int, priority int) error {
+func (r *GoodsPostgres) Reprioritize(ctx context.Context, goodsID, projectID int, priority int) error {
 	tx, err := r.db.Begin(r.ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(r.ctx) // Убедитесь, что вызывается Rollback в случае ошибки
 
+	_, span := r.tracer.Start(ctx, "ReprioritizeItem")
+	defer span.End()
+
 	var exists bool
-	_, err = r.db.Prepare(r.ctx, "checkGoodsExists", fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE id = $1 AND project_id = $2)", goodsTable))
-	if err != nil {
-		return err
-	}
-	err = tx.QueryRow(r.ctx, "checkGoodsExists", goodsID, projectID).Scan(&exists)
+	err = tx.QueryRow(r.ctx, fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE id = $1 AND project_id = $2)", goodsTable), goodsID, projectID).Scan(&exists)
 	if err != nil {
 		return err
 	}
@@ -280,9 +355,12 @@ func (r *GoodsPostgres) Reprioritize(goodsID, projectID int, priority int) error
 		return err
 	}
 
+	span.AddEvent("invalidate goods in cache", trace.WithAttributes(attribute.String("key", fmt.Sprintf("goods:%d:%d", goodsID, projectID))))
 	key := fmt.Sprintf("goods:%d:%d", goodsID, projectID)
 	err = r.cache.Delete(r.ctx, key)
 	if err != nil {
+		span.RecordError(err, trace.WithAttributes(attribute.String("error", err.Error())))
+		span.SetStatus(codes.Error, err.Error())
 		r.logger.Error("Failed to invalidate cache for key %s: %v", zap.String("key", key), zap.Error(err))
 	}
 

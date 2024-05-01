@@ -2,10 +2,15 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"go-service/internal/models"
 	"go-service/internal/repository"
@@ -45,11 +50,24 @@ func (h *Handler) createGoods(c *gin.Context) {
 		input.Description = input.Name
 	}
 
-	id, err := h.services.Goods.Create(projectID, input)
+	ctx, span := h.tracer.Start(c.Request.Context(), "createGoods")
+	defer span.End()
+	span.AddEvent("create goods", trace.WithAttributes(attribute.String("name", input.Name)))
+
+	id, err := h.services.Goods.Create(ctx, projectID, input)
 	if err != nil {
+		span.RecordError(err, trace.WithAttributes(
+			attribute.String("error", err.Error())))
+		span.SetStatus(codes.Error, err.Error())
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	//createdGoods, err := h.services.Goods.GetOne(id, projectID)
+	//if err != nil {
+	//	newErrorResponse(c, http.StatusInternalServerError, err.Error())
+	//	return
+	//}
 
 	response := &models.Goods{
 		ID:          id,
@@ -58,7 +76,7 @@ func (h *Handler) createGoods(c *gin.Context) {
 		Description: input.Description,
 		Priority:    input.Priority,
 		Removed:     input.Removed,
-		CreatedAt:   input.CreatedAt,
+		CreatedAt:   time.Now(),
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -81,8 +99,16 @@ func (h *Handler) createGoods(c *gin.Context) {
 func (h *Handler) getAllGoods(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
-	goods, err := h.services.Goods.GetAll(limit, offset)
+
+	ctx, span := h.tracer.Start(c.Request.Context(), "getAllGoods")
+	defer span.End()
+
+	goods, err := h.services.Goods.GetAll(ctx, limit, offset)
+	span.AddEvent("get all goods", trace.WithAttributes(attribute.String("count", fmt.Sprint(len(goods.Goods)))))
 	if err != nil {
+		span.RecordError(err, trace.WithAttributes(
+			attribute.String("error", err.Error())))
+		span.SetStatus(codes.Error, err.Error())
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -117,8 +143,15 @@ func (h *Handler) getOne(c *gin.Context) {
 		return
 	}
 
-	goods, err := h.services.Goods.GetOne(goodsID, projectID)
+	ctx, span := h.tracer.Start(c.Request.Context(), "getOne")
+	defer span.End()
+	span.AddEvent("getOne", trace.WithAttributes(attribute.String("id", fmt.Sprint(goodsID))))
+
+	goods, err := h.services.Goods.GetOne(ctx, goodsID, projectID)
 	if err != nil {
+		span.RecordError(err, trace.WithAttributes(
+			attribute.String("error", err.Error())))
+		span.SetStatus(codes.Error, err.Error())
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -159,16 +192,31 @@ func (h *Handler) updateGoods(c *gin.Context) {
 		return
 	}
 
-	if err := h.services.Goods.Update(goodsID, projectID, input); err != nil {
+	ctx, span := h.tracer.Start(c.Request.Context(), "updateGoods")
+	defer span.End()
+	span.AddEvent("updateGoods", trace.WithAttributes(attribute.String("goodsID", fmt.Sprintf("%d", goodsID))))
+
+	if err := h.services.Goods.Update(ctx, goodsID, projectID, input); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
+			span.RecordError(err, trace.WithAttributes(
+				attribute.String("error", err.Error())))
+			span.SetStatus(codes.Error, err.Error())
 			newDetailedErrorResponse(c, http.StatusNotFound, 3, "errors.good.NotFound", "record not found")
 			return
 		}
+		span.RecordError(err, trace.WithAttributes(
+			attribute.String("error", err.Error())))
+		span.SetStatus(codes.Error, err.Error())
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	updatedGoods, err := h.services.Goods.GetOne(goodsID, projectID)
+	updatedGoods, err := h.services.Goods.GetOne(ctx, goodsID, projectID)
+	span.AddEvent("updated goods",
+		trace.WithAttributes(
+			attribute.String("id", fmt.Sprint(updatedGoods.ID)),
+			attribute.String("name", updatedGoods.Name),
+		))
 	if err != nil {
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
@@ -203,23 +251,27 @@ func (h *Handler) deleteGoods(c *gin.Context) {
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	ctx, span := h.tracer.Start(c.Request.Context(), "deleteGoods")
 
-	err = h.services.Goods.Delete(goodsID, projectID)
-	if err != nil {
-		newErrorResponse(c, http.StatusInternalServerError, err.Error())
-		return
-	}
+	defer span.End()
+	span.AddEvent("deleteGoods", trace.WithAttributes(attribute.String("goodsID", fmt.Sprintf("%d", goodsID))))
 
-	if err := h.services.Goods.Delete(goodsID, projectID); err != nil {
+	if err := h.services.Goods.Delete(ctx, goodsID, projectID); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
+			span.RecordError(err, trace.WithAttributes(
+				attribute.String("error", err.Error())))
+			span.SetStatus(codes.Error, err.Error())
 			newDetailedErrorResponse(c, http.StatusNotFound, 3, "errors.good.NotFound", "record not found")
 			return
 		}
+		span.RecordError(err, trace.WithAttributes(
+			attribute.String("error", err.Error())))
+		span.SetStatus(codes.Error, err.Error())
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	updatedGoods, err := h.services.Goods.GetOne(goodsID, projectID)
+	updatedGoods, err := h.services.Goods.GetOne(ctx, goodsID, projectID)
 	if err != nil {
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
@@ -262,17 +314,27 @@ func (h *Handler) reprioritize(c *gin.Context) {
 		return
 	}
 
-	err = h.services.Goods.Reprioritize(goodsID, projectID, priority)
+	ctx, span := h.tracer.Start(c.Request.Context(), "reprioritize")
+	defer span.End()
+	span.AddEvent("reprioritize")
+
+	err = h.services.Goods.Reprioritize(ctx, goodsID, projectID, priority)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
+			span.RecordError(err, trace.WithAttributes(
+				attribute.String("error", err.Error())))
+			span.SetStatus(codes.Error, err.Error())
 			newDetailedErrorResponse(c, http.StatusNotFound, 3, "errors.good.NotFound", "record not found")
 			return
 		}
+		span.RecordError(err, trace.WithAttributes(
+			attribute.String("error", err.Error())))
+		span.SetStatus(codes.Error, err.Error())
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	updatedGoods, err := h.services.Goods.GetOne(goodsID, projectID)
+	updatedGoods, err := h.services.Goods.GetOne(ctx, goodsID, projectID)
 	if err != nil {
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
