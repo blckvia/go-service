@@ -1,5 +1,7 @@
 port: '8000'
 
+debug: false
+
 db:
   host: 'localhost'
   port: '5436'
@@ -14,3 +16,6 @@ rdb:
 
 nats:
   url: 'nats://localhost:4222'
+
+tracer:
+  url: 'http://localhost:14268/api/traces'
