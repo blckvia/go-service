@@ -1,6 +1,6 @@
 port: '8000'
 
-debug: false
+debug: true
 
 db:
   host: 'localhost'
