@@ -15,7 +15,6 @@ func NewGoodsService(repo repository.Goods) *GoodsService {
 	return &GoodsService{repo: repo}
 }
 
-// TODO: count of goods
 func (s *GoodsService) GetAll(ctx context.Context, limit, offset int) (models.GetAllGoods, error) {
 	return s.repo.GetAll(ctx, limit, offset)
 }

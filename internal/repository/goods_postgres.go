@@ -16,6 +16,9 @@ import (
 	"go.uber.org/zap"
 
 	"go-service/internal/models"
+	p "go-service/pkg/prometheus"
+
+	//p "go-service/pkg/prometheus"
 	r "go-service/pkg/redis"
 )
 
@@ -42,8 +45,6 @@ func NewGoodsPostgres(ctx context.Context, db *pgxpool.Pool, cache r.Cache, logg
 }
 
 // GetAll get all Goods
-// TODO: create span to DB
-// TODO: metrics cache hit
 func (r *GoodsPostgres) GetAll(ctx context.Context, limit, offset int) (models.GetAllGoods, error) {
 	var goods []models.Goods
 
@@ -128,8 +129,6 @@ func (r *GoodsPostgres) GetAll(ctx context.Context, limit, offset int) (models.G
 // GetOne one item from Goods
 func (r *GoodsPostgres) GetOne(ctx context.Context, goodsID, projectID int) (models.Goods, error) {
 	var goods models.Goods
-	// TODO: create redis span
-	// TODO: metrics cache hit
 
 	_, span := r.tracer.Start(ctx, "GetOneItem")
 	defer span.End()
@@ -138,12 +137,15 @@ func (r *GoodsPostgres) GetOne(ctx context.Context, goodsID, projectID int) (mod
 	key := fmt.Sprintf("goods:%d:%d", goodsID, projectID)
 	cachedGoods, err := r.cache.Get(r.ctx, key)
 	if err == nil {
+		p.CacheHitsTotal.WithLabelValues(fmt.Sprintf("goods:%d", goodsID), fmt.Sprintf("project:%d", projectID)).Inc()
 		err := json.Unmarshal([]byte(cachedGoods), &goods)
 		if err != nil {
 			r.logger.Error("Failed to unmarshal cached goods: %v", zap.Error(err))
 		} else {
 			return goods, nil
 		}
+	} else {
+		p.CacheMissesTotal.WithLabelValues(fmt.Sprintf("goods:%d", goodsID), fmt.Sprintf("project:%d", projectID)).Inc()
 	}
 
 	query := fmt.Sprintf(`SELECT gp.id, gp.project_id, gp.name, gp.description, gp.priority, gp.removed, gp.created_at FROM %s gp WHERE gp.id = $1 AND gp.project_id = $2`, goodsTable)

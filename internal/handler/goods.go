@@ -8,12 +8,14 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"go-service/internal/models"
 	"go-service/internal/repository"
+	p "go-service/pkg/prometheus"
 )
 
 // @Summary Create item
@@ -154,6 +156,8 @@ func (h *Handler) getOne(c *gin.Context) {
 		span.SetStatus(codes.Error, err.Error())
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
+	} else {
+		p.GoodsCounter.With(prometheus.Labels{"project_id": fmt.Sprint(projectID)}).Inc()
 	}
 
 	c.JSON(http.StatusOK, goods)
