@@ -3,6 +3,7 @@ package handler
 import (
 	"github.com/gin-contrib/pprof"
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"go.opentelemetry.io/otel/trace"
@@ -33,14 +34,13 @@ func (h *Handler) InitRoutes() *gin.Engine {
 	router.Use(otelgin.Middleware("go-service"))
 
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	debugMode := viper.GetBool("debug")
 	if debugMode {
 		pprof.Register(router, "/debug/pprof")
 	}
 
-	// TODO: /metrics or config telemetry /goods_metrics ?
-	// TODO: взять к6 утилиту и написать нагрузку для плофайлера
 	api := router.Group("/api")
 	{
 		projects := api.Group("/projects")
