@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/nats-io/nats.go"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/redis/go-redis/v9"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -17,6 +18,7 @@ import (
 	"go-service/internal/repository"
 	"go-service/internal/service"
 	n "go-service/pkg/nats"
+	p "go-service/pkg/prometheus"
 	r "go-service/pkg/redis"
 	"go-service/pkg/tracer"
 )
@@ -37,15 +39,11 @@ type App struct {
 }
 
 func NewApp(ctx context.Context, logger *zap.Logger) *App {
-	//logger := zap.Must(zap.NewProduction())
-	//defer func(logger *zap.Logger) {
-	//	err := logger.Sync()
-	//	if err != nil {
-	//		logger.Error("failed to sync logger", zap.Error(err))
-	//	}
-	//}(logger)
-
 	redisClient := r.NewClient(logger)
+
+	prometheus.MustRegister(p.CacheHitsTotal)
+	prometheus.MustRegister(p.CacheMissesTotal)
+	prometheus.MustRegister(p.GoodsCounter)
 
 	if err := InitConfig(); err != nil {
 		logger.Fatal("error initializing configs: %w", zap.Error(err))
